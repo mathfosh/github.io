@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>课程表（基于 1.txt）</title>
+  <style>
+    :root{
+      --timeline-min: 0;
+      --timeline-max: 1000;
+      --bg: #f7fafc;
+      --card-bg: #fff;
+      --accent: #2b6cb0;
+    }
+    body{
+      font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: #0f172a;
+    }
+    h1{ margin: 0 0 8px 0; font-size: 20px; }
+    .topbar{
+      display:flex;align-items:center;gap:16px;margin-bottom:12px;
+      flex-wrap:wrap;
+    }
+    .status{
+      background:linear-gradient(90deg, rgba(43,108,176,0.1), rgba(43,108,176,0.04));
+      border:1px solid rgba(43,108,176,0.12);
+      padding:8px 12px;border-radius:8px;
+      display:flex;flex-direction:column;
+    }
+    .status .now{ font-weight:700; font-size:16px; }
+    .status .detail{ font-size:13px; color:#334155; margin-top:4px; }
+    .controls{ margin-left:auto; display:flex; gap:8px; align-items:center; }
+    .legend{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:13px; color:#334155; }
+    .legend .item{display:flex;gap:6px;align-items:center}
+    .color-dot{width:14px;height:14px;border-radius:4px}
+    /* schedule container */
+    .schedule-wrap{
+      display:grid;
+      grid-template-columns: 80px 1fr;
+      gap:12px;
+      align-items:start;
+    }
+    .time-column{
+      background:transparent;
+      min-width:80px;
+    }
+    .day-columns{
+      display:grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap:8px;
+    }
+    .day{
+      background:var(--card-bg);
+      border-radius:8px;
+      padding:8px;
+      box-shadow: 0 1px 3px rgba(2,6,23,0.06);
+      min-height: calc(100vh - 220px);
+      position:relative;
+      overflow:hidden;
+    }
+    .day h3{
+      margin:0 0 6px 0;
+      font-size:14px;
+      display:flex;align-items:center;justify-content:space-between;
+    }
+    .timeline{
+      position:relative;
+      height:100%;
+      background:linear-gradient(180deg, rgba(2,6,23,0.01), transparent 40%);
+      border-radius:6px;
+      padding-right:4px;
+    }
+    .slot{
+      position:absolute;
+      left:6px;
+      right:6px;
+      border-radius:6px;
+      padding:6px 8px;
+      box-sizing:border-box;
+      color:#021124;
+      font-size:13px;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      border:1px solid rgba(2,6,23,0.06);
+      background:linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.8));
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .slot .title{ font-weight:700; font-size:14px; }
+    .slot .time{ font-size:12px; color:#334155; }
+    .slot:hover{ transform: translateY(-3px); box-shadow:0 6px 18px rgba(2,6,23,0.08); z-index:2;}
+    .slot.current{
+      box-shadow: 0 6px 30px rgba(43,108,176,0.2);
+      border:2px solid rgba(43,108,176,0.16);
+      transform: translateY(-2px) scale(1.01);
+      z-index:3;
+    }
+    .now-line{
+      position:absolute;
+      left:0; right:0;
+      height:2px;
+      background:linear-gradient(90deg,#ef4444,#f97316);
+      box-shadow:0 2px 8px rgba(249,115,22,0.25);
+      z-index:4;
+      border-radius:2px;
+    }
+    .times{
+      display:flex;flex-direction:column;gap:8px;padding-top:24px;
+    }
+    .times .t{ font-size:13px; color:#475569; height:24px; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
+    .info{ margin-top:10px; color:#475569; font-size:13px; }
+    @media (max-width:900px){
+      .schedule-wrap{ grid-template-columns:1fr; }
+      .time-column{ display:none; }
+      .day{ min-height:600px; }
+      .day-columns{ grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width:520px){
+      .day-columns{ grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <h1>课程表（基于 1.txt）</h1>
+  <div class="topbar">
+    <div class="status" id="status">
+      <div class="now" id="nowText">正在计算中...</div>
+      <div class="detail" id="nowDetail">——</div>
+    </div>
+
+    <div class="legend" id="legend"></div>
+
+    <div class="controls">
+      <div id="weekInfo" style="font-size:13px;color:#334155"></div>
+    </div>
+  </div>
+
+  <div class="schedule-wrap">
+    <div class="time-column">
+      <div style="height:24px;"></div>
+      <div class="times" id="timeLabels"></div>
+    </div>
+
+    <div class="day-columns" id="daysContainer">
+      <!-- days injected here -->
+    </div>
+  </div>
+
+  <div class="info" id="infoFooter">
+    注：时间以本地时间为准；红色/橙色线为当前时间线。若要从文件动态加载请告诉我，我可以改写为读取外部 1.txt。
+  </div>
+
+<script>
+/* 数据：从你提供的 1.txt 手动转换成 JS 对象 */
+const data = {
+  subjects: [
+    {"name":"语文","simplified_name":"语"},
+    {"name":"数学","simplified_name":"数"},
+    {"name":"英语","simplified_name":"英"},
+    {"name":"历史","simplified_name":"历"},
+    {"name":"政治","simplified_name":"政"},
+    {"name":"物理","simplified_name":"物"},
+    {"name":"化学","simplified_name":"化"},
+    {"name":"生物","simplified_name":"生"},
+    {"name":"地理","simplified_name":"地"},
+    {"name":"信息技术","simplified_name":"信"},
+    {"name":"体育","simplified_name":"体"},
+    {"name":"自习","simplified_name":"自"},
+    {"name":"通用技术","simplified_name":"技"},
+    {"name":"音乐","simplified_name":"音"},
+    {"name":"美术","simplified_name":"美"},
+    {"name":"选修课","simplified_name":"选"},
+    {"name":"社团","simplified_name":"社"},
+    {"name":"心理","simplified_name":"心"},
+    {"name":"早读","simplified_name":"早"},
+    {"name":"班会","simplified_name":"班"},
+    {"name":"周测","simplified_name":"测"},
+    {"name":"人工智能","simplified_name":"智"},
+    {"name":"劳动","simplified_name":"劳"},
+    {"name":"晚读","simplified_name":"读"}
+  ],
+  schedules: [
+    {
+      name:"新课表",
+      classes:[
+        {"subject":"早读","start_time":"07:25:00","end_time":"07:50:00"},
+        {"subject":"政治","start_time":"07:58:00","end_time":"08:40:00"},
+        {"subject":"语文","start_time":"08:48:00","end_time":"09:30:00"},
+        {"subject":"自习","start_time":"09:58:00","end_time":"10:40:00"},
+        {"subject":"英语","start_time":"10:48:00","end_time":"11:30:00"},
+        {"subject":"数学","start_time":"11:38:00","end_time":"12:20:00"},
+        {"subject":"生物","start_time":"14:35:00","end_time":"15:20:00"},
+        {"subject":"体育","start_time":"15:28:00","end_time":"16:15:00"},
+        {"subject":"班会","start_time":"16:23:00","end_time":"17:10:00"},
+        {"subject":"晚读","start_time":"18:55:00","end_time":"19:05:00"},
+        {"subject":"自习","start_time":"19:05:00","end_time":"20:20:00"},
+        {"subject":"自习","start_time":"20:28:00","end_time":"21:20:00"}
+      ],
+      enable_day:1,
+      weeks:"odd"
+    },
+    {
+      name:"新课表",
+      classes:[
+        {"subject":"早读","start_time":"07:25:00","end_time":"07:50:00"},
+        {"subject":"政治","start_time":"07:58:00","end_time":"08:40:00"},
+        {"subject":"语文","start_time":"08:48:00","end_time":"09:30:00"},
+        {"subject":"自习","start_time":"09:58:00","end_time":"10:40:00"},
+        {"subject":"英语","start_time":"10:48:00","end_time":"11:30:00"},
+        {"subject":"数学","start_time":"11:38:00","end_time":"12:20:00"},
+        {"subject":"生物","start_time":"14:35:00","end_time":"15:20:00"},
+        {"subject":"体育","start_time":"15:28:00","end_time":"16:15:00"},
+        {"subject":"班会","start_time":"16:23:00","end_time":"17:10:00"},
+        {"subject":"晚读","start_time":"18:55:00","end_time":"19:05:00"},
+        {"subject":"自习","start_time":"19:05:00","end_time":"20:20:00"},
+        {"subject":"自习","start_time":"20:28:00","end_time":"21:20:00"}
+      ],
+      enable_day:1,
+      weeks:"even"
+    },
+    {
+      name:"新课表",
+      classes:[
+        {"subject":"早读","start_time":"07:25:00","end_time":"07:50:00"},
+        {"subject":"音乐","start_time":"07:58:00","end_time":"08:40:00"},
+        {"subject":"历史","start_time":"08:48:00","end_time":"09:30:00"},
+        {"subject":"数学","start_time":"09:58:00","end_time":"10:40:00"},
+        {"subject":"英语","start_time":"10:48:00","end_time":"11:30:00"},
+        {"subject":"英语","start_time":"11:38:00","end_time":"12:20:00"},
+        {"subject":"地理","start_time":"14:35:00","end_time":"15:20:00"},
+        {"subject":"体育","start_time":"15:28:00","end_time":"16:15:00"},
+        {"subject":"自习","start_time":"16:23:00","end_time":"17:10:00"},
+        {"subject":"晚读","start_time":"18:55:00","end_time":"19:05:00"},
+        {"subject":"自习","start_time":"19:05:00","end_time":"20:20:00"},
+        {"subject":"自习","start_time":"20:28:00","end_time":"21:20:00"}
+      ],
+      enable_day:2,
+      weeks:"all"
+    },
+    {
+      name:"新课表",
+      classes:[
+        {"subject":"早读","start_time":"07:25:00","end_time":"07:50:00"},
+        {"subject":"数学","start_time":"07:58:00","end_time":"08:40:00"},
+        {"subject":"数学","start_time":"08:48:00","end_time":"09:30:00"},
+        {"subject":"体育","start_time":"09:58:00","end_time":"10:40:00"},
+        {"subject":"语文","start_time":"10:48:00","end_time":"11:30:00"},
+        {"subject":"英语","start_time":"11:38:00","end_time":"12:20:00"},
+        {"subject":"生物","start_time":"14:35:00","end_time":"15:20:00"},
+        {"subject":"心理","start_time":"15:28:00","end_time":"16:15:00"},
+        {"subject":"自习","start_time":"16:23:00","end_time":"17:10:00"},
+        {"subject":"晚读","start_time":"18:55:00","end_time":"19:05:00"},
+        {"subject":"自习","start_time":"19:05:00","end_time":"20:20:00"},
+        {"subject":"自习","start_time":"20:28:00","end_time":"21:20:00"}
+      ],
+      enable_day:3,
+      weeks:"all"
+    },
+    {
+      name:"新课表",
+      classes:[
+        {"subject":"早读","start_time":"07:25:00","end_time":"07:50:00"},
+        {"subject":"英语","start_time":"07:58:00","end_time":"08:40:00"},
+        {"subject":"地理","start_time":"08:48:00","end_time":"09:30:00"},
+        {"subject":"语文","start_time":"09:58:00","end_time":"10:40:00"},
+        {"subject":"政治","start_time":"10:48:00","end_time":"11:30:00"},
+        {"subject":"劳动","start_time":"11:38:00","end_time":"12:20:00"},
+        {"subject":"体育","start_time":"14:35:00","end_time":"15:20:00"},
+        {"subject":"数学","start_time":"15:28:00","end_time":"16:15:00"},
+        {"subject":"自习","start_time":"16:23:00","end_time":"17:10:00"},
+        {"subject":"晚读","start_time":"18:55:00","end_time":"19:05:00"},
+        {"subject":"自习","start_time":"19:05:00","end_time":"20:20:00"},
+        {"subject":"自习","start_time":"20:28:00","end_time":"21:20:00"}
+      ],
+      enable_day:4,
+      weeks:"all"
+    },
+    {
+      name:"新课表",
+      classes:[
+        {"subject":"早读","start_time":"07:25:00","end_time":"07:50:00"},
+        {"subject":"信息技术","start_time":"07:58:00","end_time":"08:40:00"},
+        {"subject":"数学","start_time":"08:48:00","end_time":"09:30:00"},
+        {"subject":"美术","start_time":"09:58:00","end_time":"10:40:00"},
+        {"subject":"语文","start_time":"10:48:00","end_time":"11:30:00"},
+        {"subject":"语文","start_time":"11:38:00","end_time":"12:20:00"},
+        {"subject":"英语","start_time":"14:35:00","end_time":"15:20:00"},
+        {"subject":"历史","start_time":"15:28:00","end_time":"16:15:00"},
+        {"subject":"自习","start_time":"16:23:00","end_time":"17:10:00"},
+        {"subject":"晚读","start_time":"18:55:00","end_time":"19:05:00"},
+        {"subject":"自习","start_time":"19:05:00","end_time":"20:20:00"},
+        {"subject":"自习","start_time":"20:28:00","end_time":"21:20:00"}
+      ],
+      enable_day:5,
+      weeks:"all"
+    }
+  ]
+};
+
+/* 配置时间轴的覆盖范围（用分钟） */
+const TIME_MIN = toMinutes("07:25:00"); // 445
+const TIME_MAX = toMinutes("21:20:00"); // 1280
+const TOTAL_MINUTES = TIME_MAX - TIME_MIN;
+
+/* weekday 映射：enable_day (1..5) => 周一..周五 */
+const WEEKDAY_NAMES = ["周日","周一","周二","周三","周四","周五","周六"];
+const WEEKDAY_SHORT = ["周日","周一","周二","周三","周四","周五","周六"];
+const ENABLE_DAY_TO_INDEX = d => d; // enable_day already 1..5 mapping到周一..周五 (JS getDay: 1..5)
+
+/* 生成主题色：基于科目名的简单哈希，生成 HSL */
+function colorFromName(name){
+  let h = 0;
+  for(let i=0;i<name.length;i++){ h = (h*31 + name.charCodeAt(i)) % 360; }
+  let s = 60 + (name.length * 7) % 20;
+  let l = 60 - (name.length * 3) % 18;
+  return `hsl(${h}deg ${s}% ${l}%)`;
+}
+
+/* 时间字符串 "HH:MM:SS" => minutes since 00:00 */
+function toMinutes(t){
+  const [hh,mm,ss] = t.split(":").map(x=>parseInt(x,10));
+  return hh*60 + mm;
+}
+
+/* 计算 ISO 周数（用于 odd/even 周） */
+function getISOWeekNumber(d){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+  return weekNo;
+}
+
+/* 检查 schedule 的 weeks 字段（"all","odd","even"）是否在当前周有效 */
+function isScheduleActiveThisWeek(schedule, now){
+  const w = schedule.weeks || "all";
+  if(w === "all") return true;
+  const weekNo = getISOWeekNumber(now);
+  if(w === "odd") return (weekNo % 2 === 1);
+  if(w === "even") return (weekNo % 2 === 0);
+  return true;
+}
+
+/* 构建每一天（1..5）当前应使用的 schedule（如果同一天有多个按 weeks 匹配取 active 的） */
+function getScheduleForDay(enableDay, now){
+  // 优先选择与当前周匹配的 schedule；若有多个符合（通常不会），取第一个
+  const candidates = data.schedules.filter(s=>s.enable_day === enableDay && isScheduleActiveThisWeek(s, now));
+  if(candidates.length > 0) return candidates[0];
+  // 兜底：若没有匹配任何（极少发生），尝试取同 day 的第一个
+  const fallback = data.schedules.find(s=>s.enable_day === enableDay);
+  return fallback || null;
+}
+
+/* 查找某一天当前正在上的课（返回 class 或 null），dayIndex 为 JS getDay() 的数值（0..6） */
+function findCurrentClassForEnableDay(enableDay, now){
+  const schedule = getScheduleForDay(enableDay, now);
+  if(!schedule) return null;
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  for(const c of schedule.classes){
+    const s = toMinutes(c.start_time);
+    const e = toMinutes(c.end_time);
+    if(nowMin >= s && nowMin < e){
+      return Object.assign({}, c, {scheduleName: schedule.name});
+    }
+  }
+  return null;
+}
+
+/* 页面渲染 */
+function render(){
+  const legend = document.getElementById("legend");
+  const daysContainer = document.getElementById("daysContainer");
+  const timeLabels = document.getElementById("timeLabels");
+  legend.innerHTML = "";
+  daysContainer.innerHTML = "";
+  timeLabels.innerHTML = "";
+
+  // 主题色映射
+  const subjColors = {};
+  for(const s of data.subjects){
+    subjColors[s.name] = colorFromName(s.name);
+  }
+
+  // legend（显示部分科目）
+  const topSubjects = data.subjects.slice(0,8);
+  for(const s of topSubjects){
+    const el = document.createElement("div");
+    el.className = "item";
+    el.innerHTML = `<div class="color-dot" style="background:${subjColors[s.name] || '#ddd'}"></div><div>${s.name}</div>`;
+    legend.appendChild(el);
+  }
+
+  // time labels 每 30 分钟或每小时标注
+  const step = 30;
+  for(let m = TIME_MIN; m <= TIME_MAX; m += step){
+    const hh = Math.floor(m/60);
+    const mm = String(m%60).padStart(2,"0");
+    const label = document.createElement("div");
+    label.className = "t";
+    label.textContent = `${String(hh).padStart(2,"0")}:${mm}`;
+    timeLabels.appendChild(label);
+  }
+
+  // 每周 5 天 (enable_day 1..5)
+  for(let d=1; d<=5; d++){
+    const dayEl = document.createElement("div");
+    dayEl.className = "day";
+    const weekdayName = WEEKDAY_SHORT[d];
+    const h = document.createElement("h3");
+    h.innerHTML = `<span>${weekdayName}</span><small style="color:#64748b;font-weight:500">${getScheduleForDay(d, new Date()) ? (getScheduleForDay(d, new Date()).weeks || "all") : ""}</small>`;
+    dayEl.appendChild(h);
+
+    const timeline = document.createElement("div");
+    timeline.className = "timeline";
+    timeline.dataset.day = d;
+
+    // render classes for that day
+    const schedule = getScheduleForDay(d, new Date());
+    if(schedule){
+      for(const cls of schedule.classes){
+        const start = toMinutes(cls.start_time);
+        const end = toMinutes(cls.end_time);
+        const topPct = Math.max(0, ((start - TIME_MIN) / TOTAL_MINUTES) * 100);
+        const heightPct = Math.max(0.6, ((end - start) / TOTAL_MINUTES) * 100);
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        slot.style.top = `${topPct}%`;
+        slot.style.height = `calc(${heightPct}% - 6px)`;
+        const color = subjColors[cls.subject] || "#ddd";
+        slot.style.borderLeft = `6px solid ${color}`;
+        slot.innerHTML = `<div class="title">${cls.subject}</div><div class="time">${cls.start_time.slice(0,5)} — ${cls.end_time.slice(0,5)}</div>`;
+        slot.dataset.start = start;
+        slot.dataset.end = end;
+        slot.dataset.subject = cls.subject;
+        timeline.appendChild(slot);
+      }
+    } else {
+      const no = document.createElement("div");
+      no.style.padding = "12px";
+      no.style.color = "#64748b";
+      no.textContent = "无课表数据";
+      timeline.appendChild(no);
+    }
+
+    dayEl.appendChild(timeline);
+    daysContainer.appendChild(dayEl);
+  }
+
+  // initial highlight
+  updateCurrentHighlight();
+}
+
+/* 更新当前时间行位置和高亮 */
+function updateCurrentHighlight(){
+  const now = new Date();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const statusNowText = document.getElementById("nowText");
+  const statusNowDetail = document.getElementById("nowDetail");
+  const weekNo = getISOWeekNumber(now);
+  document.getElementById("weekInfo").textContent = `本周第 ${weekNo} 周（${weekNo%2===0 ? '偶周' : '单周'}）`;
+
+  // clear old current classes
+  document.querySelectorAll(".slot.current").forEach(el=>el.classList.remove("current"));
+  document.querySelectorAll(".now-line").forEach(el=>el.remove());
+
+  // for each day column, find current class if day matches today
+  const todayDay = now.getDay(); // 0..6
+  // enable_day uses 1..5 (周一..周五)
+  const currentEnableDay = (todayDay >=1 && todayDay <=5) ? todayDay : null;
+
+  let currentFound = null;
+  if(currentEnableDay){
+    // get timeline for that day
+    const timeline = document.querySelector(`.timeline[data-day="${currentEnableDay}"]`);
+    if(timeline){
+      // find matching slot
+      const slots = Array.from(timeline.querySelectorAll(".slot"));
+      for(const s of slots){
+        const start = Number(s.dataset.start);
+        const end = Number(s.dataset.end);
+        if(nowMin >= start && nowMin < end){
+          s.classList.add("current");
+          currentFound = {subject: s.dataset.subject, start, end};
+          break;
+        }
+      }
+      // draw now-line if within TIME_MIN..TIME_MAX
+      if(nowMin >= TIME_MIN && nowMin <= TIME_MAX){
+        const topPct = ((nowMin - TIME_MIN) / TOTAL_MINUTES) * 100;
+        const line = document.createElement("div");
+        line.className = "now-line";
+        line.style.top = `${topPct}%`;
+        timeline.appendChild(line);
+      }
+    }
+  }
+
+  if(currentFound){
+    statusNowText.textContent = `正在上：${currentFound.subject}`;
+    const s = minutesToHHMM(currentFound.start);
+    const e = minutesToHHMM(currentFound.end);
+    statusNowDetail.textContent = `时间：${s} — ${e}`;
+  } else {
+    // 若不在课间或周末
+    statusNowText.textContent = `当前没有进行中的课程`;
+    const next = findNextUpcomingClass(new Date());
+    if(next){
+      statusNowDetail.textContent = `下一节：${next.subject}（${next.day}） ${minutesToHHMM(next.start)}—${minutesToHHMM(next.end)}`;
+    } else {
+      statusNowDetail.textContent = `今天/本周没有更多课程`;
+    }
+  }
+}
+
+/* 找到接下来的一节课（从当前时刻往后搜索同天再往后天） */
+function findNextUpcomingClass(now){
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  // search today -> later
+  const today = now.getDay();
+  for(let offset=0; offset<7; offset++){
+    const d = (today + offset) % 7;
+    if(d < 1 || d > 5) continue; // 只看周一到周五 (enable_day 1..5)
+    const enableDay = d;
+    const schedule = getScheduleForDay(enableDay, now);
+    if(!schedule) continue;
+    for(const cls of schedule.classes){
+      const start = toMinutes(cls.start_time);
+      const end = toMinutes(cls.end_time);
+      if(offset === 0 && start <= nowMin) continue; // 今天但已经过去或正在上则跳过
+      // valid upcoming
+      return {subject: cls.subject, start, end, day: WEEKDAY_SHORT[enableDay]};
+    }
+  }
+  return null;
+}
+
+function minutesToHHMM(mins){
+  const hh = Math.floor(mins/60);
+  const mm = mins % 60;
+  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+}
+
+/* 启动渲染并周期更新 */
+render();
+setInterval(updateCurrentHighlight, 30_000); // 每 30 秒更新当前位置
+
+// 初次更新时间线（立即执行）
+updateCurrentHighlight();
+
+</script>
+</body>
+</html>

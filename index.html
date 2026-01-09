@@ -2,61 +2,83 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>当前活动</title>
+  <title>当前活动（简单版）</title>
   <style>
-    /* 极简：所有文字居中 */
-    html,body{height:100%;margin:0;padding:0}
-    body{
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      text-align:center;
-      font-family: "Microsoft YaHei", Arial, sans-serif;
-      background: #fff;
-      color:#000;
-      padding:16px;
-    }
-    .wrap{max-width:720px;width:100%}
-    h1{margin:8px 0 14px 0;font-size:24px}
-    #activity{font-size:20px;margin:8px 0;font-weight:700}
-    #timeInfo{font-size:16px;margin:6px 0;color:#111}
-    #extra{font-size:14px;margin-top:12px;color:#333}
-    button{margin-top:12px;padding:6px 10px;font-size:14px}
-    .small{font-size:13px;color:#444;margin-top:6px}
+    body { text-align: center; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+    h1, #now, #detail, #others { text-align: center; }
+    button { margin: 10px auto; display: block; }
+    #now { font-size: 1.6em; margin-top: 1em; }
+    #detail { font-size: 1.1em; margin-top: 0.7em; }
+    #others { margin-top: 1.6em; color: #677; font-size: 14px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>当前活动</h1>
+  <h1>当前活动</h1>
+  <div id="now">正在加载…</div>
+  <div id="detail"></div>
+  <div id="others"></div>
+  <button id="reload">重新加载 1.txt</button>
 
-    <div id="activity">加载中…</div>
-    <div id="timeInfo"></div>
-    <div id="extra" class="small"></div>
-
-    <div>
-      <button id="reload">重新加载 1.txt</button>
-    </div>
-  </div>
-
-  <!-- 解析 YAML（若你不想依赖外部库，可把数据直接内嵌到脚本里） -->
   <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
   <script>
-    // 工具
-    const parseMin = s => {
-      if(!s) return null;
-      const parts = s.split(':').map(x=>parseInt(x,10)||0);
-      return parts[0]*60 + parts[1];
+    // 工具函数
+    const parseTimeMin = s => {
+      if (!s) return null;
+      const [hh, mm] = s.split(':').map(x => parseInt(x, 10) || 0);
+      return hh * 60 + mm;
     };
-    const fmt = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-    function getISOWeekNumber(d){
+    const fmt = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    function getISOWeekNumber(d) {
       const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
       const dayNum = date.getUTCDay() || 7;
       date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
-      return Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+    const weekdayStr = n => ["日","一","二","三","四","五","六"][n%7];
+
+    // 活动插入辅助
+    function withBreaks(classes) {
+      if (!classes || !classes.length) return [];
+      let result = [];
+      for (let i = 0; i < classes.length; i++) {
+        const c = classes[i];
+        // 记录当前课程
+        result.push({
+          ...c,
+          is_break: false
+        });
+
+        // 判断与下节课的间隙，若间隔较长插入大课间
+        if (i < classes.length - 1) {
+          const end = parseTimeMin(c.end_time);
+          const nextStart = parseTimeMin(classes[i + 1].start_time);
+          const gap = nextStart - end;
+          // 课间处理
+          if (gap >= 35) {
+            // 35分钟以上视为"大课间"
+            result.push({
+              subject: "大课间",
+              start_time: fmt(end),
+              end_time: fmt(nextStart),
+              is_break: true,
+              big: true
+            });
+          } else if (gap >= 5) {
+            // 其它课间
+            result.push({
+              subject: "课间",
+              start_time: fmt(end),
+              end_time: fmt(nextStart),
+              is_break: true
+            });
+          }
+        }
+      }
+      return result;
     }
 
-    // 回退数据（当无法 fetch 时使用）
+    // 回退数据
     const fallback = {
       subjects: [{"name":"语文","simplified_name":"语"},{"name":"数学","simplified_name":"数"},{"name":"英语","simplified_name":"英"},{"name":"历史","simplified_name":"历"},{"name":"政治","simplified_name":"政"},{"name":"物理","simplified_name":"物"},{"name":"化学","simplified_name":"化"},{"name":"生物","simplified_name":"生"},{"name":"地理","simplified_name":"地"},{"name":"信息技术","simplified_name":"信"},{"name":"体育","simplified_name":"体"},{"name":"自习","simplified_name":"自"},{"name":"通用技术","simplified_name":"技"},{"name":"音乐","simplified_name":"音"},{"name":"美术","simplified_name":"美"},{"name":"选修课","simplified_name":"选"},{"name":"社团","simplified_name":"社"},{"name":"心理","simplified_name":"心"},{"name":"早读","simplified_name":"早"},{"name":"班会","simplified_name":"班"},{"name":"周测","simplified_name":"测"},{"name":"人工智能","simplified_name":"智"},{"name":"劳动","simplified_name":"劳"},{"name":"晚读","simplified_name":"读"}],
       schedules: [
@@ -69,20 +91,19 @@
       ]
     };
 
-    async function loadData(){
-      try{
+    async function loadData() {
+      try {
         const res = await fetch('./1.txt', {cache:'no-store'});
-        if(!res.ok) throw new Error('fetch fail');
+        if (!res.ok) throw new Error('fetch fail');
         const txt = await res.text();
         const doc = jsyaml.load(txt);
-        if(!doc || !doc.schedules) return fallback;
-        return doc;
-      }catch(e){
+        return (doc && doc.schedules) ? doc : fallback;
+      } catch {
         return fallback;
       }
     }
 
-    function scheduleActive(schedule, now){
+    function scheduleActiveForWeek(schedule, now){
       const w = (schedule.weeks || 'all');
       if(w === 'all') return true;
       const weekNo = getISOWeekNumber(now);
@@ -92,138 +113,105 @@
     }
 
     function getScheduleForDay(data, enableDay, now){
-      const cand = (data.schedules || []).filter(s => Number(s.enable_day) === Number(enableDay));
-      // prefer those active this week
-      for(const c of cand){
-        if(scheduleActive(c, now)) return c;
-      }
-      return cand[0] || null;
+      const arr = (data.schedules || []).filter(s=>Number(s.enable_day)===Number(enableDay));
+      for(const c of arr) if(scheduleActiveForWeek(c,now)) return c;
+      return arr[0] || null;
     }
 
-    // 将 classes 按时间排序并返回今日课表数组（每项含 start,end in minutes）
-    function getTodayClasses(data, now){
+    function buildFullDayClasses(data, now){
+      // 返回当天完整的课程/课间list（含断层课间）
       const dow = now.getDay();
       if(dow < 1 || dow > 5) return [];
-      const schedule = getScheduleForDay(data, dow, now);
-      if(!schedule || !schedule.classes) return [];
-      const arr = schedule.classes.map(c => {
-        return {
-          subject: c.subject,
-          start: parseMin(c.start_time),
-          end: parseMin(c.end_time)
-        };
-      }).filter(x => x.start != null && x.end != null)
-        .sort((a,b) => a.start - b.start);
-      return arr;
+      const sched = getScheduleForDay(data, dow, now);
+      if(!sched) return [];
+      let arr = sched.classes || [];
+      // 排序，理论上已排序
+      arr = arr.slice().sort((a,b)=>parseTimeMin(a.start_time)-parseTimeMin(b.start_time));
+      return withBreaks(arr);
     }
 
-    // 判定当前活动（课/课间/大课间/上学前/放学后/周末）
-    function getCurrentActivity(classes, now){
-      const nowMin = now.getHours()*60 + now.getMinutes();
-      if(classes.length === 0) return {type:'no-classes'};
-      // before first class
-      if(nowMin < classes[0].start){
-        const gap = classes[0].start - nowMin;
-        // 这里仍然视为 课前（若 gap 很长但仍为课前）
-        return {type:'before-first', next: classes[0], minutesToNext: gap};
-      }
-      // after last class
-      if(nowMin >= classes[classes.length-1].end){
-        return {type:'after-last', last: classes[classes.length-1], minutesSinceEnd: nowMin - classes[classes.length-1].end};
-      }
-      // inside or between
-      for(let i=0;i<classes.length;i++){
-        const cls = classes[i];
-        if(nowMin >= cls.start && nowMin < cls.end){
-          return {type:'in-class', class: cls};
-        }
-        // gap between cls and next
-        const next = classes[i+1];
-        if(next && nowMin >= cls.end && nowMin < next.start){
-          const gap = next.start - cls.end;
-          // 判断是否为大课间（阈值：>=20分钟）
-          const largeThreshold = 20; // 分钟
-          return {type: 'break', previous: cls, next: next, gapMinutes: gap, isLarge: gap >= largeThreshold};
+    function findCurrentActivity(full, now){
+      const minNow = now.getHours()*60+now.getMinutes();
+      for(const item of full){
+        const st = parseTimeMin(item.start_time), en = parseTimeMin(item.end_time);
+        if(st != null && en != null && minNow >= st && minNow < en){
+          return item;
         }
       }
-      // fallback
-      return {type:'unknown'};
+      return null;
     }
 
-    // 渲染文本（极简）
-    function renderActivityText(act, now){
-      const activityEl = document.getElementById('activity');
-      const timeEl = document.getElementById('timeInfo');
-      const extraEl = document.getElementById('extra');
-      activityEl.textContent = '';
-      timeEl.textContent = '';
-      extraEl.textContent = '';
-
-      if(act.type === 'no-classes'){
-        activityEl.textContent = '今日无课程';
-        return;
+    function findNextActivity(full, now){
+      const minNow = now.getHours()*60+now.getMinutes();
+      for(const item of full){
+        const st = parseTimeMin(item.start_time);
+        if(st != null && st > minNow) return item;
       }
-      if(act.type === 'before-first'){
-        activityEl.textContent = '课前活动';
-        timeEl.textContent = `上课：${act.next.subject}，开始 ${fmt(act.next.start)}，还有 ${act.minutesToNext} 分钟`;
-        return;
-      }
-      if(act.type === 'after-last'){
-        activityEl.textContent = '已放学';
-        timeEl.textContent = `最后一节：${act.last.subject}，下课 ${fmt(act.last.end)}，已过 ${act.minutesSinceEnd} 分钟`;
-        return;
-      }
-      if(act.type === 'in-class'){
-        activityEl.textContent = act.class.subject;
-        timeEl.textContent = `上课时间：${fmt(act.class.start)} — ${fmt(act.class.end)}`;
-        // 还剩多少分钟
-        const remain = act.class.end - (now.getHours()*60 + now.getMinutes());
-        extraEl.textContent = `距离下课还有 ${remain} 分钟`;
-        return;
-      }
-      if(act.type === 'break'){
-        const label = act.isLarge ? '大课间' : '课间';
-        activityEl.textContent = label;
-        timeEl.textContent = `上一节：${act.previous.subject}（${fmt(act.previous.start)} — ${fmt(act.previous.end)}），下一节：${act.next.subject}（${fmt(act.next.start)} — ${fmt(act.next.end)}）`;
-        extraEl.textContent = `休息时长：${act.gapMinutes} 分钟，距离下节开始还有 ${act.next.start - (now.getHours()*60 + now.getMinutes())} 分钟`;
-        return;
-      }
-      activityEl.textContent = '——';
+      return null;
     }
 
-    // 查找并显示
     let currentData = null;
     async function refresh(){
       if(!currentData) currentData = await loadData();
       const now = new Date();
       const dow = now.getDay();
-      const activityEl = document.getElementById('activity');
-      // 周末处理
-      if(dow === 0 || dow === 6){
-        activityEl.textContent = '周末，休息';
-        document.getElementById('timeInfo').textContent = '';
-        document.getElementById('extra').textContent = '';
+      const fullList = buildFullDayClasses(currentData, now); // 含课间
+
+      const nowEl = document.getElementById('now');
+      const detEl = document.getElementById('detail');
+      const othersEl = document.getElementById('others');
+
+      if(dow < 1 || dow > 5){
+        nowEl.innerText = "今天是周末";
+        detEl.innerText = "";
+        othersEl.innerText = "";
         return;
       }
-      const classes = getTodayClasses(currentData, now);
-      const act = getCurrentActivity(classes, now);
-      renderActivityText(act, now);
+
+      const cur = findCurrentActivity(fullList, now);
+      if(cur){
+        nowEl.innerText = cur.subject;
+        detEl.innerText = `时间：${cur.start_time.slice(0,5)} - ${cur.end_time.slice(0,5)}`;
+        // 上一节和下一节
+        let pre = null, nxt = null;
+        for(let i=0;i<fullList.length;i++){
+          if(fullList[i] === cur){
+            pre = fullList[i-1]||null;
+            nxt = fullList[i+1]||null;
+            break;
+          }
+        }
+        othersEl.innerHTML =
+          (pre ? `上一活动：${pre.subject}（${pre.end_time.slice(0,5)}下课）<br>` : '') +
+          (nxt ? `下一活动：${nxt.subject}（${nxt.start_time.slice(0,5)}上课）` : '');
+      } else {
+        const next = findNextActivity(fullList, now);
+        if(next){
+          nowEl.innerText = '当前是空闲时段';
+          detEl.innerText = `下一活动：${next.subject}，时间：${next.start_time.slice(0,5)} - ${next.end_time.slice(0,5)}`;
+          // 上一个
+          let pre = null;
+          for(let i=0;i<fullList.length;i++)if(parseTimeMin(fullList[i].start_time)<=now.getHours()*60+now.getMinutes())pre=fullList[i];
+          othersEl.innerHTML =
+            (pre ? `上一活动：${pre.subject}（${pre.end_time.slice(0,5)}下课）<br>` : '') +
+            '';
+        }else{
+          nowEl.innerText = "今天活动全部结束";
+          detEl.innerText = "";
+          othersEl.innerText = "";
+        }
+      }
     }
 
-    document.getElementById('reload').addEventListener('click', async ()=>{
-      currentData = null;
-      document.getElementById('activity').textContent = '重新加载中…';
-      document.getElementById('timeInfo').textContent = '';
-      document.getElementById('extra').textContent = '';
+    document.getElementById('reload').onclick = async ()=>{
       currentData = await loadData();
       refresh();
-    });
+    };
 
-    // 启动
     (async ()=>{
       currentData = await loadData();
-      await refresh();
-      setInterval(refresh, 15_000);
+      refresh();
+      setInterval(refresh, 15000);
     })();
   </script>
 </body>
